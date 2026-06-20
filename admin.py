@@ -487,8 +487,8 @@ def admin_conv_handler():
             CallbackQueryHandler(add_earn_channel_prompt, pattern="^admin_add_earn_channel$"),
             CallbackQueryHandler(create_star_code,       pattern="^admin_create_code$"),
             CallbackQueryHandler(broadcast_prompt,       pattern="^admin_broadcast$"),
-            CallbackQueryHandler(reject_order,           pattern="^admin_reject_(\d+)$"),
-        ],
+            CallbackQueryHandler(reject_order,           pattern=r"^admin_reject_(\d+)$"),
+        ] 
         states={
             ADMIN_WAITING_CHANNEL_ID:   [MessageHandler(filters.TEXT & ~filters.COMMAND, recv_channel_id)],
             ADMIN_WAITING_CHANNEL_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, recv_channel_name)],
