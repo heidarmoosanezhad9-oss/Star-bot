@@ -6,9 +6,9 @@ Main entry point
 import logging
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 from config import BOT_TOKEN
-from handlers.user import *
-from handlers.admin import *
-from handlers.orders import *
+from user import *
+from admin import *
+from orders import *
 from database import init_db
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
