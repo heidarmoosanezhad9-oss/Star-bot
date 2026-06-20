@@ -97,12 +97,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _send_join_gate(update, context, not_joined)
         return
 
-    u = db.get_user(user.id)
-    await update.message.reply_text(
-        t(user.id, "welcome_back", name=user.full_name, stars=u["stars"]),
-        reply_markup=main_menu_keyboard(user.id),
-        parse_mode="Markdown"
-    )
+    u = db.get_user(uid)
+    text = t(uid, "main_menu_title", stars=u["stars"])
+    kb   = main_menu_keyboard(uid)
+    try:
+        await query.edit_message_text(text, reply_markup=kb, parse_mode="Markdown")
+    except Exception:
+        await context.bot.send_message(uid, text, reply_markup=kb, parse_mode="Markdown")
 
 
 # ── Main menu ──────────────────────────────────────────────────────────────────
