@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     # --- متفرقه ---
     LOG_LEVEL: str = "INFO"
     TIMEZONE: str = "Asia/Tehran"
+    COLLECTOR_CHANNEL_LINK: str = "https://t.me/stars_member_free"
 
 
 settings = Settings()
