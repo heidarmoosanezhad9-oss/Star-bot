@@ -1,152 +1,89 @@
-# ⭐ Telegram Star Exchange Bot
+# Telegram Growth Platform — فاز ۱ (بک‌اند + ربات)
 
-A fully-featured member-growth exchange bot for Telegram. Users earn stars by joining channels, inviting friends, or redeeming codes — then spend those stars to grow their own channel or group.
+پلتفرم رشد تلگرام با اقتصاد الماس، جوین کانال برای کسب الماس، سفارش خودکار ممبر و تبلیغ کانال،
+رفرال، میشن/اچیومنت، VIP، Trust Score، آنتی‌فرود پایه، گیفت‌کد، تیکت پشتیبانی و پنل مدیریت از داخل ربات.
 
----
+موارد حذف‌شده طبق درخواست: استارز، ری‌اکشن، بازدید، رأی‌گیری، مارکت‌پلیس کامل (فروشنده/اسکرو/کمیسیون/حراج اسپانسر).
 
-## 📁 File Structure
-
-```
-telegram_star_bot/
-├── bot.py              # Entry point — registers all handlers
-├── config.py           # All settings (edit this first)
-├── database.py         # SQLite database layer
-├── requirements.txt
-├── handlers/
-│   ├── __init__.py
-│   ├── user.py         # All user-facing menus & logic
-│   ├── admin.py        # Admin panel
-│   └── orders.py       # Order placement conversation
-```
+## ⚠️ یک نکته مهم قبل از اجرا
+این نوع ربات (تبادل عضو/جوین در ازای امتیاز) رشد مصنوعی ایجاد می‌کنه و ممکنه با قوانین تلگرام درباره
+اسپم/تعامل غیرواقعی در تضاد باشه. مسئولیت رعایت قوانین تلگرام و استفاده‌ی درست با خودته.
 
 ---
 
-## ⚙️ Setup
+## ساختار پروژه
 
-### 1. Install dependencies
+```
+app/
+  config.py          تنظیمات از .env
+  database.py        اتصال async به PostgreSQL
+  redis_client.py     اتصال Redis
+  seed.py            دیتای اولیه (VIP/میشن/اچیومنت)
+  models/            مدل‌های SQLAlchemy
+  services/          منطق اصلی (کیف پول، سفارش، رفرال، VIP، تراست، آنتی‌فرود...)
+  bot/               ربات Aiogram 3.x (هندلرها، کیبوردها، میدلورها)
+  tasks/             Celery (ریفیل پشتیبان، تکمیل خودکار تبلیغ، بردکاست)
+  api/               FastAPI سبک (فعلاً فقط healthcheck)
+migrations/          اسکلت Alembic (اختیاری برای آینده)
+docker-compose.yml   اجرای کامل لوکال
+Dockerfile           ایمیج مشترک همه سرویس‌ها
+```
 
+## پیش‌نیازها
+- یک بات تلگرام از @BotFather (توکن)
+- آیدی عددی خودت به‌عنوان اونر (از @userinfobot بگیر)
+- یک کانال تلگرامی که **ربات توش ادمین باشه** (همون کانال جمع‌آوری سفارش‌ها)
+
+## متغیرهای محیطی (`.env`)
+از `.env.example` کپی کن و مقادیر فیک رو با مقادیر واقعی جابه‌جا کن:
+- `BOT_TOKEN` , `OWNER_ID` , `COLLECTOR_CHANNEL_ID`
+- `DATABASE_URL` (روی Railway از پلاگین Postgres می‌گیری)
+- `REDIS_URL` / `CELERY_BROKER_URL` / `CELERY_RESULT_BACKEND` (روی Railway از پلاگین Redis می‌گیری - هر سه می‌تونن همون یک Redis باشن با دیتابیس‌های 0/1/2)
+
+---
+
+## 🚀 دیپلوی روی Railway (با Git)
+
+1. یه ریپازیتوری گیت‌هاب بساز و کل پوشه‌ی پروژه رو پوش کن.
+2. روی [railway.app](https://railway.app) یک پروژه‌ی جدید بساز و ریپازیتوری رو وصل کن.
+3. از «New» → **Database → PostgreSQL** و **Database → Redis** اضافه کن. ریلوی خودش `DATABASE_URL` و `REDIS_URL` می‌سازه.
+4. روی همون پروژه، **۳ سرویس جدا** از همین ریپازیتوری بساز (هر کدوم Dockerfile یکسان، فقط Start Command فرق داره):
+   - **bot** → Start Command: `python -m app.bot.main`
+   - **worker** → Start Command: `celery -A app.tasks.celery_app worker --loglevel=info`
+   - **beat** → Start Command: `celery -A app.tasks.celery_app beat --loglevel=info`
+   - (اختیاری) **api** → Start Command: `uvicorn app.api.main:app --host 0.0.0.0 --port 8000`
+5. روی هر ۳-۴ سرویس، متغیرهای محیطی بالا رو ست کن (می‌تونی Postgres/Redis رو به همه‌شون Reference بدی تا یکی باشه).
+6. Deploy بزن. توی سرویس `bot` لاگ `Bot starting polling...` باید بیاد یعنی آنلاینه.
+
+> نکته: چون از Polling استفاده شده (نه Webhook)، نیازی به دامنه/HTTPS برای خود ربات نیست؛ فقط دیتابیس و Redis باید در دسترس باشن.
+
+## 🖥 اجرای لوکال با Docker (اگه به PC دسترسی پیدا کردی)
 ```bash
-pip install -r requirements.txt
-```
-
-### 2. Create your bot
-
-1. Open [@BotFather](https://t.me/BotFather) on Telegram
-2. Send `/newbot` and follow the steps
-3. Copy your **Bot Token**
-
-### 3. Edit `config.py`
-
-```python
-BOT_TOKEN        = "YOUR_BOT_TOKEN"        # From BotFather
-ADMIN_IDS        = [123456789]             # Your Telegram user ID(s)
-BOT_USERNAME     = "YourBotUsername"       # Without @
-RESULTS_CHANNEL_ID = -100xxxxxxxxxx        # Private channel ID for order updates
-```
-
-**To find your Telegram user ID:** message [@userinfobot](https://t.me/userinfobot)
-
-**To find a channel ID:** forward a message from it to [@userinfobot](https://t.me/userinfobot)
-
-### 4. Add the bot as admin
-
-- In every **required channel** (join gate): add bot as admin with "Add Members" permission
-- In every **earn channel**: add bot as admin with at least "Read Messages" permission
-- In the **results channel**: add bot as admin with "Invite Users via Link" permission
-
-### 5. Run the bot
-
-```bash
-python bot.py
+cp .env.example .env   # و مقادیرش رو واقعی کن
+docker compose up --build
 ```
 
 ---
 
-## 🛠 Admin Commands
+## ✅ تست end-to-end سفارش ممبر
+1. ربات رو به یک کانال تستی، **ادمین** کن با دسترسی «دعوت کاربران» و «مدیریت چت».
+2. توی PV ربات: `🛒 ثبت سفارش` → `👥 سفارش ممبر` → یوزرنیم کانال رو بفرست → تعداد رو بفرست → تایید کن.
+3. سفارش خودکار تایید و توی کانال جمع‌آوری (`COLLECTOR_CHANNEL_ID`) پست میشه.
+4. با یک اکانت دیگه روی دکمه‌ی پست کلیک کن (باید قبلش عضو کانال هدف شده باشه) → الماس می‌گیره و پیشرفت سفارش بالا میره.
+5. وقتی اون یوزر از کانال هدف لفت بده، ریفیل خودکار فعال میشه (نیاز به بازبینی پیشرفت داره).
 
-| Command / Button | Action |
-|---|---|
-| `/admin` | Open the admin panel |
-| 📢 Required Channels | Channels users MUST join before using the bot |
-| 💎 Earn Channels | Channels users can join to earn stars |
-| 📋 Pending Orders | Review, approve, or reject member orders |
-| 🎟 Star Codes | Create/delete gift codes |
-| 📣 Broadcast | Send a message to all users |
-| 📊 Stats | View user & order counts |
-
----
-
-## 👤 User Menu
-
-| Button | Action |
-|---|---|
-| ⭐ Daily Stars | Claim free stars once per day |
-| 👤 Profile | View stats, star balance, invite count |
-| 💎 Earn Stars | Join channels to earn stars |
-| 👥 Invite Friends | Get a referral link (+stars per friend) |
-| 🛒 Buy Stars | Contact admin to purchase stars |
-| 🎟 Star Code | Redeem a gift code for stars |
-| 📋 My Orders | View all past and pending orders |
-| ➕ New Member Order | Place a new channel/group growth order |
+## دستورات ادمین (فقط برای `OWNER_ID`)
+- `/setconfig کلید مقدار` — مثلا `/setconfig join_reward 15`
+- `/ban آیدی_عددی [دلیل]` و `/unban آیدی_عددی`
+- `/adjustwallet آیدی_عددی مقدار` (منفی = برداشت)
+- دکمه‌ی `🛠 پنل مدیریت` → آمار کلی، بردکاست، ساخت گیفت‌کد، تنظیمات
 
 ---
 
-## 💡 Star Economy (defaults in `config.py`)
-
-| Action | Stars |
-|---|---|
-| Daily claim | +5 ⭐ |
-| Friend joins via your link | +10 ⭐ |
-| Joining an earn channel | +3 ⭐ (configurable per channel) |
-| Each member ordered | −5 ⭐ per member |
-
----
-
-## 🔄 Order Flow
-
-1. User selects **New Order** → picks channel or group
-2. Enters target username/link and desired member count
-3. Stars are deducted immediately
-4. Admins receive a notification with **Approve / Reject** buttons
-5. On approval → user gets instructions + a one-time invite link to the results channel
-6. On rejection → stars are fully refunded + reason sent to user
-
----
-
-## 🚀 Running in Production (Linux server)
-
-Create a systemd service at `/etc/systemd/system/starbot.service`:
-
-```ini
-[Unit]
-Description=Telegram Star Bot
-After=network.target
-
-[Service]
-WorkingDirectory=/path/to/telegram_star_bot
-ExecStart=/usr/bin/python3 bot.py
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Then:
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable starbot
-sudo systemctl start starbot
-sudo systemctl status starbot
-```
-
----
-
-## 📝 Notes
-
-- The bot uses **SQLite** — no external database needed
-- All data is stored in `bot_database.db` (auto-created on first run)
-- Star codes are case-insensitive and each user can only redeem each code once
-- Cancelled orders refund stars automatically
-- The bot detects if a user hasn't joined required channels and shows the join gate again
+## 🗺 نقشه فاز ۲ (هنوز ساخته نشده)
+- پنل ادمین وب (React + TailwindCSS) روی همین FastAPI
+- Automation Builder بدون‌کد (IF/THEN)
+- Dynamic Menu Builder بدون‌کد
+- Lottery System
+- Event System با ضریب پاداش (مدل `Event` ساخته شده ولی هنوز در reward_service اعمال نمیشه)
+- Alembic migration واقعی به‌جای `init_models()`
