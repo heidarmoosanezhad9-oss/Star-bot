@@ -38,7 +38,7 @@ async def validate_channel_for_member_order(bot: Bot, chat_id: int) -> dict:
     """چک می‌کنه ربات توی کانال ادمینه و دسترسی دعوت/مدیریت داره"""
     try:
         chat = await bot.get_chat(chat_id)
-        me = await bot.me()
+        me = await bot.get_me()
         member = await bot.get_chat_member(chat_id, me.id)
     except TelegramBadRequest as e:
         return {"ok": False, "error": f"دسترسی به کانال ممکن نشد: {e.message}"}

@@ -20,7 +20,7 @@ class GiftCodeStates(StatesGroup):
 
 @router.message(F.text == "👥 زیرمجموعه‌گیری")
 async def referral_info(message: Message, user: User, bot: Bot):
-    me = await bot.me()
+    me = await bot.get_me()
     link = f"https://t.me/{me.username}?start=ref_{user.id}"
     await message.answer(
         f"👥 <b>زیرمجموعه‌گیری</b>\n\n"
