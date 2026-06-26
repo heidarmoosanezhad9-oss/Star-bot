@@ -4,6 +4,7 @@ import string
 from datetime import datetime, timedelta
 
 from aiogram import Router, F, Bot
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -488,11 +489,25 @@ async def admin_forcesub_list(callback: CallbackQuery, session: AsyncSession):
     for c in channels:
         lines.append(f"#{c.id} {c.title or c.chat_id} {'✅' if c.is_active else '❌'}")
     lines.append(
-        "\n➕ اضافه کردن: <code>/addforcesub آیدی_عددی_کانال</code> (ربات باید قبلش عضو/ادمین اونجا باشه)"
+        "\n➕ اضافه کردن: <code>/addforcesub لینک_یا_یوزرنیم_یا_آیدی</code> (ربات باید قبلش عضو/ادمین اونجا باشه)"
         "\n🗑 حذف: <code>/delforcesub آیدی</code>"
     )
     await callback.message.edit_text("\n".join(lines), reply_markup=admin_panel_keyboard())
     await callback.answer()
+
+
+def _parse_chat_ref(text: str) -> str | int:
+    """ورودی addforcesub رو از حالت لینک/یوزرنیم/آیدی به فرمتی که bot.get_chat می‌فهمه تبدیل می‌کنه"""
+    text = text.strip()
+    if "t.me/" in text:
+        text = text.split("t.me/")[-1].split("?")[0].strip("/")
+        if text.startswith("+") or text.startswith("joinchat"):
+            return text  # لینک دعوت خصوصی - احتمالا resolve نمیشه، پیام خطا توضیح می‌ده
+    if text.lstrip("-").isdigit():
+        return int(text)
+    if not text.startswith("@"):
+        text = "@" + text
+    return text
 
 
 @router.message(Command("addforcesub"))
@@ -500,19 +515,25 @@ async def cmd_addforcesub(message: Message, command: CommandObject, session: Asy
     if not await _require_full(message, session):
         return
     if not command.args:
-        await message.answer("فرمت: /addforcesub آیدی_عددی_کانال")
+        await message.answer("فرمت: /addforcesub لینک_یا_یوزرنیم_یا_آیدی_عددی")
         return
+
+    chat_ref = _parse_chat_ref(command.args)
     try:
-        chat_id = int(command.args.strip())
-    except ValueError:
-        await message.answer("آیدی عددی نامعتبره.")
+        chat = await bot.get_chat(chat_ref)
+    except TelegramBadRequest as e:
+        await message.answer(
+            f"❌ پیدا نشد: {e.message}\n\n"
+            "اگه کانال/گروه یوزرنیم عمومی ندارد (لینک دعوت خصوصیه)، باید آیدی عددیش رو بدی: "
+            "یه پیام از همون کانال/گروه رو به @JsonDumpBot فوروارد کن تا آیدی عددی (شروع‌شده با -100) رو بگیری، "
+            "بعد همون رو با /addforcesub بفرست."
+        )
         return
-    try:
-        chat = await bot.get_chat(chat_id)
     except Exception as e:
         await message.answer(f"خطا: {e}")
         return
-    fs = ForceSubChannel(chat_id=chat_id, title=chat.title, username=chat.username)
+
+    fs = ForceSubChannel(chat_id=chat.id, title=chat.title, username=chat.username)
     session.add(fs)
     await session.flush()
     await message.answer(f"✅ {chat.title} به لیست عضویت اجباری اضافه شد.")

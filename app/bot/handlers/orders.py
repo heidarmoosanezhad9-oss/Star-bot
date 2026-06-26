@@ -1,4 +1,6 @@
 """هندلر ثبت سفارش (ممبر/تبلیغ) با FSM - تایید کاملاً خودکار، بدون دخالت دستی ادمین"""
+import logging
+
 from aiogram import Router, F, Bot
 from aiogram.filters import BaseFilter
 from aiogram.fsm.context import FSMContext
@@ -19,6 +21,7 @@ from app.config import settings as cfg
 from app.redis_client import redis_client
 
 router = Router(name="orders")
+logger = logging.getLogger(__name__)
 
 MENU_TEXTS = {
     "⭐ کسب استارز", "🛒 ثبت سفارش", "👤 پروفایل من", "👥 زیرمجموعه‌گیری",
@@ -170,6 +173,15 @@ async def confirm_order(callback: CallbackQuery, state: FSMContext, session: Asy
     except OrderError as e:
         await callback.message.edit_text(f"❌ {e}")
         await state.clear()
+        await callback.answer()
+        return
+    except Exception:
+        logger.exception("Unexpected error while confirming order")
+        await state.clear()
+        try:
+            await callback.message.edit_text("❌ یه خطای غیرمنتظره پیش اومد. دوباره امتحان کن یا به پشتیبانی پیام بده.")
+        except Exception:
+            pass
         await callback.answer()
         return
 

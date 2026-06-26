@@ -37,11 +37,14 @@ async def earn_menu(message: Message, session: AsyncSession, user: User):
     if banner:
         channel = await session.get(Channel, banner.channel_id)
         if channel:
+            from html import escape as _esc
             link = f"https://t.me/{channel.username}" if channel.username else (channel.invite_link or "")
             await record_impression(session, banner)
+            title = _esc(channel.title) if channel.title else "-"
+            desc = _esc(channel.description) if channel.description else ""
             kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="👀 مشاهده کانال", url=link)]]) if link else None
             await message.answer(
-                f"📣 <b>تبلیغ</b>\n\n{channel.title or '-'}\n{channel.description or ''}".strip(),
+                f"📣 <b>تبلیغ</b>\n\n{title}\n{desc}".strip(),
                 reply_markup=kb,
             )
 

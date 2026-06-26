@@ -7,6 +7,7 @@
 5) تشخیص لفت + ریفیل خودکار + جریمه‌ی لفت زودهنگام
 """
 from datetime import datetime, timedelta
+from html import escape as _esc
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest
@@ -146,10 +147,11 @@ async def create_order(
 async def _build_collector_text(order: Order, channel: Channel) -> str:
     brand = "استارز ممبر"
     link_part = f"@{channel.username}" if channel.username else channel.chat_id
-    description = channel.description or "فاقد توضیحات"
+    description = _esc(channel.description) if channel.description else "فاقد توضیحات"
+    title = _esc(channel.title) if channel.title else "-"
     return (
         f"📢 سفارشات | {brand}\n\n"
-        f"نام کانال‼️: {channel.title or '-'}\n"
+        f"نام کانال‼️: {title}\n"
         f"📝 توضیحات کانال: {description}\n\n"
         f"ID: {link_part}"
     )
@@ -193,9 +195,10 @@ async def update_collector_message(bot: Bot, session: AsyncSession, order: Order
         return
 
     if order.status == OrderStatus.COMPLETED.value:
+        title = _esc(channel.title) if channel.title else "-"
         text = (
             f"✅ <b>سفارش تکمیل شد</b>\n\n"
-            f"نام کانال: {channel.title or '-'}\n"
+            f"نام کانال: {title}\n"
             f"از همه‌ی شرکت‌کننده‌ها ممنونیم! ⭐"
         )
         try:
