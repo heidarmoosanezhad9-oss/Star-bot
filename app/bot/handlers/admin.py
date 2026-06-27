@@ -140,13 +140,12 @@ async def admin_broadcast_text(message: Message, state: FSMContext, session: Asy
     job = BroadcastJob(created_by=message.from_user.id, target_segment="all", text=message.text or "")
     session.add(job)
     await session.flush()
+    job_id = job.id
 
-    try:
-        from app.tasks.broadcast_tasks import send_broadcast
-        send_broadcast.delay(job.id)
-        await message.answer(f"✅ بردکاست #{job.id} به صف ارسال اضافه شد.")
-    except Exception:
-        await message.answer("⚠️ صف Celery در دسترس نیست؛ بردکاست ذخیره شد ولی ارسال نشد.")
+    import asyncio
+    from app.tasks.broadcast_tasks import _send_broadcast
+    asyncio.create_task(_send_broadcast(job_id))
+    await message.answer(f"✅ بردکاست #{job_id} شروع به ارسال شد (مستقیم از همین ربات، بدون نیاز به سرویس جدا).")
 
 
 # --------------------------------------------------------------- تنظیمات
