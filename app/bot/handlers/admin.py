@@ -736,20 +736,3 @@ async def cmd_editstarpkg(message: Message, command: CommandObject, session: Asy
     pkg.price_label = price_label
     await session.flush()
     await message.answer(f"âœ… Ø¨Ø³ØªÙ‡ #{pkg_id} ÙˆÛŒØ±Ø§ÛŒØ´ Ø´Ø¯: {amount} â­ | {price_label}")
-
-
-@router.message(Command("listorders"))
-async def cmd_listorders(message: Message, command: CommandObject, session: AsyncSession):
-    if not await _require_full(message, session):
-        return
-    from app.models.orders import Order
-    from sqlalchemy import desc
-    result = await session.execute(select(Order).order_by(desc(Order.created_at)).limit(20))
-    orders = result.scalars().all()
-    if not orders:
-        await message.answer("âŒ Ù‡ÛŒÚ† Ø³ÙØ§Ø±Ø´ÛŒ ÙˆØ¬ÙˆØ¯ Ù†Ø¯Ø§Ø±Ø¯.")
-        return
-    lines = ["í ½í³‹ Ø¢Ø®Ø±ÛŒÙ† Û²Û° Ø³ÙØ§Ø±Ø´:\n"]
-    for o in orders:
-        lines.append(f"í ¼í¶” {o.id} | í ½í±¤ {o.user_id} | í ½í³Š {o.target_count}Ø¹Ø¶Ùˆ | âœ…{o.progress_count} | í ½í³Œ {o.status}")
-    await message.answer("\n".join(lines), parse_mode="HTML")
