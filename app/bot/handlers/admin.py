@@ -652,3 +652,45 @@ async def admin_tickets_list(callback: CallbackQuery, session: AsyncSession):
         lines.append("تیکت بازی نیست.")
     await callback.message.edit_text("\n".join(lines), reply_markup=admin_panel_keyboard())
     await callback.answer()
+
+
+@router.message(Command("liststarpkg"))
+async def cmd_liststarpkg(message: Message, command: CommandObject, session: AsyncSession):
+    if not await _require_full(message, session):
+        return
+    result = await session.execute(select(StarPackage))
+    pkgs = result.scalars().all()
+    if not pkgs:
+        await message.answer("❌ بسته‌ای وجود ندارد.")
+        return
+    lines = ["📦 <b>لیست بسته‌های ستاره:</b>\n"]
+    for p in pkgs:
+        status = "✅" if p.is_active else "❌"
+        lines.append(f"{status} ID:{p.id} | {p.amount_stars} ⭐ | {p.price_label}")
+    lines.append("\n✏️ ویرایش: /editstarpkg آیدی تعداد_ستاره برچسب_قیمت")
+    await message.answer("\n".join(lines))
+
+
+@router.message(Command("editstarpkg"))
+async def cmd_editstarpkg(message: Message, command: CommandObject, session: AsyncSession):
+    if not await _require_full(message, session):
+        return
+    parts = (command.args or "").split(maxsplit=2)
+    if len(parts) != 3:
+        await message.answer("فرمت: /editstarpkg آیدی تعداد_ستاره برچسب_قیمت")
+        return
+    try:
+        pkg_id = int(parts[0])
+        amount = int(parts[1])
+        price_label = parts[2]
+    except ValueError:
+        await message.answer("❌ آیدی و تعداد باید عدد باشند.")
+        return
+    pkg = await session.get(StarPackage, pkg_id)
+    if not pkg:
+        await message.answer("❌ بسته پیدا نشد.")
+        return
+    pkg.amount_stars = amount
+    pkg.price_label = price_label
+    await session.flush()
+    await message.answer(f"✅ بسته #{pkg_id} ویرایش شد: {amount} ⭐ | {price_label}")
