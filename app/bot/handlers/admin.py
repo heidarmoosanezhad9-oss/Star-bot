@@ -736,3 +736,24 @@ async def cmd_editstarpkg(message: Message, command: CommandObject, session: Asy
     pkg.price_label = price_label
     await session.flush()
     await message.answer(f"✅ بسته #{pkg_id} ویرایش شد: {amount} ⭐ | {price_label}")
+@router.message(Command("listorders"))
+async def cmd_listorders(message: Message, command: CommandObject, session: AsyncSession):
+    if not await _require_full(message, session):
+        return
+    from app.models.orders import Order
+    from sqlalchemy import desc
+    result = await session.execute(
+        select(Order).order_by(desc(Order.created_at)).limit(20)
+    )
+    orders = result.scalars().all()
+    if not orders:
+        await message.answer("hich safareshi vojod nadarad.")
+        return
+    lines = ["20 safaresh akhir:\n"]
+    for o in orders:
+        lines.append(
+            f"ID:{o.id} | user:{o.user_id} | "
+            f"{o.target_count} ozv | done:{o.progress_count} | "
+            f"{o.status}"
+        )
+    await message.answer("\n".join(lines))
