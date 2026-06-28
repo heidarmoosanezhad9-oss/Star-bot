@@ -140,8 +140,8 @@ async def admin_broadcast_text(message: Message, state: FSMContext, session: Asy
     job = BroadcastJob(created_by=message.from_user.id, target_segment="all", text=message.text or "")
     session.add(job)
     await session.flush()
+    await session.commit() 
     job_id = job.id
-
     from app.tasks.broadcast_tasks import _send_broadcast
     from app.bot.background import fire_and_forget
     fire_and_forget(_send_broadcast(job_id))
