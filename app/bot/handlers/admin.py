@@ -142,9 +142,9 @@ async def admin_broadcast_text(message: Message, state: FSMContext, session: Asy
     await session.flush()
     job_id = job.id
 
-    import asyncio
     from app.tasks.broadcast_tasks import _send_broadcast
-    asyncio.create_task(_send_broadcast(job_id))
+    from app.bot.background import fire_and_forget
+    fire_and_forget(_send_broadcast(job_id))
     await message.answer(f"✅ بردکاست #{job_id} شروع به ارسال شد (مستقیم از همین ربات، بدون نیاز به سرویس جدا).")
 
 
