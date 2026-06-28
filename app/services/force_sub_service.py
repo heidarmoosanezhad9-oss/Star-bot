@@ -9,7 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import User, ForceSubChannel, ForceSubJoin, ActionType
 from app.services.wallet_service import penalize
 from app.services.settings_service import get_setting
-from app.redis_client import redis_client
 
 
 async def get_active_channels(session: AsyncSession) -> list[ForceSubChannel]:
@@ -20,10 +19,10 @@ async def get_active_channels(session: AsyncSession) -> list[ForceSubChannel]:
 
 
 async def get_missing_channels(bot: Bot, session: AsyncSession, user: User) -> list[ForceSubChannel]:
-    cache_key = f"fs_ok:{user.id}"
-    if await redis_client.get(cache_key):
-        return []
-
+    """
+    هر بار که صدا زده می‌شه، عضویت رو زنده از تلگرام چک می‌کنه - بدون کش و بدون بای‌پس،
+    تا کاربری که بعد از تایید اولیه از کانال لفت داده، فوراً (همون کلیک بعدی) دوباره گیت بشه.
+    """
     channels = await get_active_channels(session)
     missing = []
     for ch in channels:
@@ -37,9 +36,6 @@ async def get_missing_channels(bot: Bot, session: AsyncSession, user: User) -> l
             await _record_join_if_new(session, user.id, ch.id)
         else:
             missing.append(ch)
-
-    if not missing:
-        await redis_client.set(cache_key, "1", ex=120)
     return missing
 
 
