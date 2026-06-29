@@ -16,7 +16,7 @@ from app.config import settings
 from app.models import (
     User, Order, Wallet, Ticket, TicketStatus, GiftCode, BroadcastJob, ActionType,
     PanelTier, PanelPrice, StarPackage, PurchaseRequest, PurchaseStatus,
-    ForceSubChannel, CustomButton, AdminUser, AdminRole,
+    ForceSubChannel, ForceSubJoin, CustomButton, AdminUser, AdminRole,
 )
 from app.bot.keyboards import admin_panel_keyboard
 from app.services.settings_service import set_setting, get_setting
@@ -56,6 +56,9 @@ async def admin_stats(callback: CallbackQuery, session: AsyncSession):
         await callback.answer("دسترسی نداری.", show_alert=True)
         return
     users_count = (await session.execute(select(func.count(User.id)))).scalar_one()
+    verified_users_count = (await session.execute(
+        select(func.count(func.distinct(ForceSubJoin.user_id)))
+    )).scalar_one()
     orders_count = (await session.execute(select(func.count(Order.id)))).scalar_one()
     stars_in_circulation = (await session.execute(select(func.coalesce(func.sum(Wallet.diamonds), 0)))).scalar_one()
     open_tickets = (await session.execute(select(func.count(Ticket.id)).where(Ticket.status == TicketStatus.OPEN.value))).scalar_one()
@@ -63,7 +66,8 @@ async def admin_stats(callback: CallbackQuery, session: AsyncSession):
 
     await callback.message.edit_text(
         f"📊 <b>آمار کلی پلتفرم</b>\n\n"
-        f"👤 کاربران: {users_count}\n"
+        f"👤 کل استارت‌زده‌ها: {users_count}\n"
+        f"✅ کاربران واقعی (رد شده از گیت عضویت اجباری): {verified_users_count}\n"
         f"🧾 سفارش‌ها: {orders_count}\n"
         f"⭐ استارز در گردش: {stars_in_circulation}\n"
         f"🎫 تیکت‌های باز: {open_tickets}\n"
@@ -135,17 +139,23 @@ async def admin_broadcast_start(callback: CallbackQuery, state: FSMContext, sess
 
 
 @router.message(BroadcastStates.waiting_text)
-async def admin_broadcast_text(message: Message, state: FSMContext, session: AsyncSession):
+async def admin_broadcast_text(message: Message, state: FSMContext, session: AsyncSession, bot: Bot):
     await state.clear()
     job = BroadcastJob(created_by=message.from_user.id, target_segment="all", text=message.text or "")
     session.add(job)
     await session.flush()
-    job_id = job.id
 
-    from app.tasks.broadcast_tasks import _send_broadcast
-    from app.bot.background import fire_and_forget
-    fire_and_forget(_send_broadcast(job_id))
-    await message.answer(f"✅ بردکاست #{job_id} شروع به ارسال شد (مستقیم از همین ربات، بدون نیاز به سرویس جدا).")
+    progress_msg = await message.answer("⏳ در حال ارسال... (این پیام وقتی تموم شد آپدیت می‌شه)")
+
+    from app.tasks.broadcast_tasks import send_broadcast_now
+    result = await send_broadcast_now(session, bot, job)
+
+    await progress_msg.edit_text(
+        f"✅ بردکاست #{job.id} تموم شد.\n\n"
+        f"📨 ارسال موفق: {result['sent']}\n"
+        f"❌ ناموفق (مسدود/حذف‌شده و...): {result['failed']}\n"
+        f"👥 از کل: {result['total']} کاربر"
+    )
 
 
 # --------------------------------------------------------------- تنظیمات
