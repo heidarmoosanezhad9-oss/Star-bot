@@ -16,7 +16,7 @@ from app.config import settings
 from app.models import (
     User, Order, Wallet, Ticket, TicketStatus, GiftCode, BroadcastJob, ActionType,
     PanelTier, PanelPrice, StarPackage, PurchaseRequest, PurchaseStatus,
-    ForceSubChannel, ForceSubJoin, CustomButton, AdminUser, AdminRole,
+    ForceSubChannel, ForceSubJoin, CustomButton, AdminUser, AdminRole, Mission,
 )
 from app.bot.keyboards import admin_panel_keyboard
 from app.services.settings_service import set_setting, get_setting
@@ -200,6 +200,50 @@ async def cmd_setconfig(message: Message, command: CommandObject, session: Async
     key, value = parts
     await set_setting(session, key, value)
     await message.answer(f"✅ {key} = {value} ذخیره شد.")
+
+
+# --------------------------------------------------------------- ماموریت‌ها
+
+@router.message(Command("listmissions"))
+async def cmd_listmissions(message: Message, session: AsyncSession):
+    if not await _require_full(message, session):
+        return
+    result = await session.execute(select(Mission))
+    missions = result.scalars().all()
+    lines = ["🎯 <b>ماموریت‌های فعلی</b>\n"]
+    for m in missions:
+        lines.append(
+            f"<code>{m.code}</code> | {m.title} | هدف: {m.target_count} | پاداش: {m.reward_diamonds}⭐ "
+            f"| {'فعال' if m.is_active else 'غیرفعال'}"
+        )
+    lines.append(
+        "\nبرای ویرایش:\n<code>/editmission کد هدف پاداش</code>\n"
+        "مثلا: <code>/editmission join_channels 10 50</code>"
+    )
+    await message.answer("\n".join(lines))
+
+
+@router.message(Command("editmission"))
+async def cmd_editmission(message: Message, command: CommandObject, session: AsyncSession):
+    if not await _require_full(message, session):
+        return
+    parts = (command.args or "").split()
+    if len(parts) != 3:
+        await message.answer("فرمت: /editmission کد هدف پاداش\nکدها رو با /listmissions ببین.")
+        return
+    code, target, reward = parts
+    result = await session.execute(select(Mission).where(Mission.code == code))
+    mission = result.scalar_one_or_none()
+    if mission is None:
+        await message.answer("این کد ماموریت پیدا نشد. با /listmissions کدهای درست رو ببین.")
+        return
+    try:
+        mission.target_count = int(target)
+        mission.reward_diamonds = int(reward)
+    except ValueError:
+        await message.answer("هدف و پاداش باید عدد باشن.")
+        return
+    await message.answer(f"✅ ماموریت «{mission.title}» آپدیت شد: هدف {mission.target_count} | پاداش {mission.reward_diamonds}⭐")
 
 
 EDITABLE_TEXT_KEYS = ["welcome_text", "rules_text", "shop_intro_text", "shop_panel_intro_text", "shop_stars_intro_text"]
