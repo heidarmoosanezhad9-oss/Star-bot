@@ -68,10 +68,6 @@ class ForceSubMiddleware(BaseMiddleware):
         if user is None or user.is_admin or user.is_banned:
             return await handler(event, data)
 
-        # دستور /start همیشه رد بشه تا کاربر بتونه اصلا ربات رو ببینه
-        if isinstance(event, Message) and (event.text or "").startswith("/start"):
-            return await handler(event, data)
-
         from app.services.force_sub_service import get_missing_channels, build_force_sub_link
 
         session = data["session"]
