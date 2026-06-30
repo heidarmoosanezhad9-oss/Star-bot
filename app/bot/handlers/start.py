@@ -29,11 +29,11 @@ async def cmd_start(message: Message, session: AsyncSession, user: User, bot: Bo
 
     wallet = await get_or_create_wallet(session, user.id)
     welcome_text = await get_setting(
-        session, "welcome_text",
+text = welcome_text.format(name=message.from_user.first_name, diamonds=wallet.diamonds)
         "سلام {name} 👋\n\nبه استارز ممبر خوش اومدی!\nاز منوی پایین می‌تونی استارز جمع کنی، "
         "ممبر یا تبلیغ برای کانالت بخری، زیرمجموعه‌گیری کنی و خیلی کارای دیگه."
     )
-    text = welcome_text.format(name=message.from_user.first_name) + f"\n\n⭐ موجودی فعلی: {wallet.diamonds}"
+    text = welcome_text.format(name=message.from_user.first_name, diamonds=wallet.diamonds)
 
     extra_labels = await get_extra_labels(session)
     await message.answer(text, reply_markup=main_menu(is_admin=user.is_admin, extra_labels=extra_labels))
