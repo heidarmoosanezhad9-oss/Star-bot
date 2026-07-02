@@ -7,8 +7,8 @@ def main_menu(is_admin: bool = False, extra_labels: list[str] | None = None) -> 
         [KeyboardButton(text="⭐ کسب استارز"), KeyboardButton(text="🛒 ثبت سفارش")],
         [KeyboardButton(text="👤 پروفایل من"), KeyboardButton(text="👥 زیرمجموعه‌گیری")],
         [KeyboardButton(text="🛍 فروشگاه"), KeyboardButton(text="🎁 کد هدیه")],
-        [KeyboardButton(text="🎯 ماموریت روزانه"), KeyboardButton(text="📜 قوانین")],
-        [KeyboardButton(text="🎫 پشتیبانی")],
+        [KeyboardButton(text="🎯 ماموریت روزانه"), KeyboardButton(text="🏆 برترین کاربران")],
+        [KeyboardButton(text="📜 قوانین"), KeyboardButton(text="🎫 پشتیبانی")],
     ]
     if extra_labels:
         for i in range(0, len(extra_labels), 2):
@@ -41,6 +41,7 @@ def admin_panel_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📊 آمار کلی", callback_data="adm:stats")],
         [InlineKeyboardButton(text="📢 بردکاست", callback_data="adm:broadcast")],
+        [InlineKeyboardButton(text="✉️ پیام به یک کاربر", callback_data="adm:dm")],
         [InlineKeyboardButton(text="🎁 ساخت گیفت‌کد", callback_data="adm:giftcode")],
         [InlineKeyboardButton(text="⚙️ تنظیمات اقتصاد", callback_data="adm:settings")],
         [InlineKeyboardButton(text="🥇 مدیریت پنل‌ها", callback_data="adm:panels")],

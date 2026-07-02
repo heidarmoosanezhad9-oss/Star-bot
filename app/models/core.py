@@ -22,6 +22,9 @@ class User(Base):
     is_banned: Mapped[bool] = mapped_column(Boolean, default=False)
     ban_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
+    warnings_count: Mapped[int] = mapped_column(Integer, default=0)  # با ۳ اخطار، خودکار بن می‌شه
+    phone_number: Mapped[str | None] = mapped_column(String(32), nullable=True)  # از طریق اشتراک شماره قبل از خرید
+
     trust_score: Mapped[int] = mapped_column(Integer, default=100)
     leaves_count: Mapped[int] = mapped_column(Integer, default=0)
     referrals_count: Mapped[int] = mapped_column(Integer, default=0)
@@ -35,6 +38,9 @@ class User(Base):
     panel_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     last_daily_claim: Mapped[date | None] = mapped_column(Date, nullable=True)
+
+    # آخرین لحظه‌ای که کاربر واقعاً تعامل داشته (هر پیام/کلیک) - برای تشخیص کاربر فعال از کاربر مرده
+    last_active_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 

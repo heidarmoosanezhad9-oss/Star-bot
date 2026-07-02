@@ -1,11 +1,17 @@
 """هندلر فروشگاه: خرید پنل یا استارز - پرداخت دستی، تأیید با یک تپ توسط ادمین"""
 from aiogram import Router, F, Bot
 from aiogram.exceptions import TelegramForbiddenError
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import (
+    Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton,
+    ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.bot.keyboards import main_menu
 from app.models import User, PanelTier, AdminUser
 from app.services.shop_service import (
     list_panel_prices, list_star_packages, create_panel_purchase_request,
@@ -16,6 +22,18 @@ from app.services.settings_service import get_setting
 router = Router(name="shop")
 
 DEFAULT_SHOP_INTRO = "🛍 به فروشگاه استارز ممبر خوش آمدید☺️\n\nلطفا گزینه مورد نظر را جهت خرید انتخاب کنید👇"
+
+
+class ShopStates(StatesGroup):
+    waiting_contact = State()
+
+
+def _share_phone_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="📱 اشتراک‌گذاری شماره من", request_contact=True)]],
+        resize_keyboard=True,
+        one_time_keyboard=True,
+    )
 
 
 async def _get_admin_ids(session: AsyncSession) -> list[int]:
@@ -77,6 +95,7 @@ async def _notify_admins_new_request(bot: Bot, session: AsyncSession, request_id
     text = (
         f"🛍 <b>درخواست خرید جدید #{request_id}</b>\n\n"
         f"خریدار: {buyer.full_name} (@{buyer.username or '-'} | {buyer.id})\n"
+        f"📱 شماره تماس: {buyer.phone_number or 'ثبت نشده'}\n"
         f"{summary}\n\n"
         f"بعد از دریافت پرداخت، تایید کن:"
     )
@@ -88,8 +107,20 @@ async def _notify_admins_new_request(bot: Bot, session: AsyncSession, request_id
 
 
 @router.callback_query(F.data.startswith("buyplan:"))
-async def on_buy_plan(callback: CallbackQuery, session: AsyncSession, user: User, bot: Bot):
+async def on_buy_plan(callback: CallbackQuery, session: AsyncSession, user: User, bot: Bot, state: FSMContext):
     price_id = int(callback.data.split(":")[1])
+
+    if not user.phone_number:
+        await state.set_state(ShopStates.waiting_contact)
+        await state.update_data(kind="plan", target_id=price_id)
+        await callback.message.answer(
+            "📱 قبل از ادامه‌ی خرید، برای ثبت رسیدگی به شکایت‌های احتمالی، لازمه شماره‌ت رو با ربات به اشتراک بذاری.\n\n"
+            "روی دکمه‌ی زیر بزن:",
+            reply_markup=_share_phone_keyboard(),
+        )
+        await callback.answer()
+        return
+
     req = await create_panel_purchase_request(session, user, price_id)
     await _notify_admins_new_request(bot, session, req.id, f"نوع: خرید پنل (#{price_id})", user)
 
@@ -104,8 +135,20 @@ async def on_buy_plan(callback: CallbackQuery, session: AsyncSession, user: User
 
 
 @router.callback_query(F.data.startswith("buystars:"))
-async def on_buy_stars(callback: CallbackQuery, session: AsyncSession, user: User, bot: Bot):
+async def on_buy_stars(callback: CallbackQuery, session: AsyncSession, user: User, bot: Bot, state: FSMContext):
     package_id = int(callback.data.split(":")[1])
+
+    if not user.phone_number:
+        await state.set_state(ShopStates.waiting_contact)
+        await state.update_data(kind="stars", target_id=package_id)
+        await callback.message.answer(
+            "📱 قبل از ادامه‌ی خرید، برای ثبت رسیدگی به شکایت‌های احتمالی، لازمه شماره‌ت رو با ربات به اشتراک بذاری.\n\n"
+            "روی دکمه‌ی زیر بزن:",
+            reply_markup=_share_phone_keyboard(),
+        )
+        await callback.answer()
+        return
+
     req = await create_star_purchase_request(session, user, package_id)
     await _notify_admins_new_request(bot, session, req.id, f"نوع: خرید استارز (#{package_id})", user)
 
@@ -117,6 +160,44 @@ async def on_buy_stars(callback: CallbackQuery, session: AsyncSession, user: Use
         ]]),
     )
     await callback.answer()
+
+
+@router.message(ShopStates.waiting_contact, F.contact)
+async def on_contact_received(message: Message, session: AsyncSession, user: User, bot: Bot, state: FSMContext):
+    contact = message.contact
+    if contact.user_id and contact.user_id != user.id:
+        await message.answer("این شماره‌ی خودت نیست. لطفاً از دکمه‌ی اشتراک‌گذاری شماره‌ی خودت استفاده کن.")
+        return
+
+    user.phone_number = contact.phone_number
+    data = await state.get_data()
+    kind, target_id = data.get("kind"), data.get("target_id")
+    await state.clear()
+
+    await message.answer("✅ شماره‌ت ثبت شد.", reply_markup=main_menu(is_admin=user.is_admin))
+
+    if kind == "plan":
+        req = await create_panel_purchase_request(session, user, target_id)
+        await _notify_admins_new_request(bot, session, req.id, f"نوع: خرید پنل (#{target_id})", user)
+    else:
+        req = await create_star_purchase_request(session, user, target_id)
+        await _notify_admins_new_request(bot, session, req.id, f"نوع: خرید استارز (#{target_id})", user)
+
+    await message.answer(
+        f"✅ درخواستت ثبت شد (#{req.id}).\n\n"
+        f"برای تکمیل خرید، رسید پرداخت رو به آیدی @{settings.ADMIN_CONTACT_USERNAME} بفرست.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="💬 پیام به ادمین", url=f"https://t.me/{settings.ADMIN_CONTACT_USERNAME}")
+        ]]),
+    )
+
+
+@router.message(ShopStates.waiting_contact)
+async def on_contact_wrong_input(message: Message):
+    await message.answer(
+        "برای ادامه لطفاً از دکمه‌ی «📱 اشتراک‌گذاری شماره من» استفاده کن (پایین صفحه).",
+        reply_markup=_share_phone_keyboard(),
+    )
 
 
 @router.callback_query(F.data.startswith("approve_purchase:"))

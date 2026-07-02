@@ -1,4 +1,5 @@
 """میدلورها: تزریق session دیتابیس، ساخت/آپدیت کاربر، و گیت عضویت اجباری"""
+from datetime import datetime
 from typing import Any, Awaitable, Callable, Dict
 
 from aiogram import BaseMiddleware
@@ -46,6 +47,9 @@ class UserMiddleware(BaseMiddleware):
             user.username = tg_user.username
             user.full_name = tg_user.full_name
 
+        # هر پیام یا کلیک روی دکمه = یک تعامل واقعی؛ برای آمار "کاربر فعال" استفاده می‌شه
+        user.last_active_at = datetime.utcnow()
+
         user.is_admin = await is_admin_or_owner(session, user.id)
 
         data["user"] = user
@@ -66,10 +70,6 @@ class ForceSubMiddleware(BaseMiddleware):
 
         user: User | None = data.get("user")
         if user is None or user.is_admin or user.is_banned:
-            return await handler(event, data)
-
-        # دستور /start همیشه رد بشه تا کاربر بتونه اصلا ربات رو ببینه
-        if isinstance(event, Message) and (event.text or "").startswith("/start"):
             return await handler(event, data)
 
         from app.services.force_sub_service import get_missing_channels, build_force_sub_link

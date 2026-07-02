@@ -1,71 +1,50 @@
-"""تسک ارسال بردکاست به کاربران (با فاصله‌ی امن برای جلوگیری از فلود/بن شدن ربات)"""
+"""
+ارسال بردکاست. این تابع مستقیم (await) از هندلر ادمین صدا زده می‌شه - نه پشت‌صحنه،
+نه با Celery - تا قابل‌پیش‌بینی و قابل‌دیباگ باشه.
+"""
 import asyncio
 import logging
-import traceback
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
-from app.database import session_scope
 from app.models import User, BroadcastJob
-from app.tasks.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
 
-async def _mark_failed(job_id: int, error_text: str):
-    try:
-        async with session_scope() as session:
-            job = await session.get(BroadcastJob, job_id)
-            if job:
-                job.status = f"failed: {error_text}"[:250]
-    except Exception:
-        logger.exception("Even failed to mark broadcast job as failed")
+async def send_broadcast_now(session: AsyncSession, bot: Bot, job: BroadcastJob) -> dict:
+    """
+    همون bot instance موجود رو استفاده می‌کنه (نه یه Bot جدید) تا هیچ مشکل
+    raw session/event-loop ای پیش نیاد. مستقیم await می‌شه، پشت‌صحنه نمی‌فرسته.
+    """
+    logger.info(f"Broadcast job {job.id}: starting (sync mode)")
 
+    result = await session.execute(select(User.id).where(User.is_banned == False))  # noqa: E712
+    user_ids = [row[0] for row in result.all()]
+    logger.info(f"Broadcast job {job.id}: {len(user_ids)} recipients")
 
-async def _send_broadcast(job_id: int):
-    logger.info(f"Broadcast job {job_id}: starting")
-    bot = Bot(token=settings.BOT_TOKEN)
-    try:
-        async with session_scope() as session:
-            job = await session.get(BroadcastJob, job_id)
-            if job is None:
-                logger.warning(f"Broadcast job {job_id}: not found")
-                return
-
-            result = await session.execute(select(User.id).where(User.is_banned == False))  # noqa: E712
-            user_ids = [row[0] for row in result.all()]
-            logger.info(f"Broadcast job {job_id}: {len(user_ids)} recipients")
-
-            sent = 0
-            for uid in user_ids:
-                try:
-                    await bot.send_message(uid, job.text)
-                    sent += 1
-                except TelegramRetryAfter as e:
-                    await asyncio.sleep(e.retry_after)
-                except TelegramForbiddenError:
-                    continue
-                except BaseException as e:
-                    logger.warning(f"Broadcast job {job_id}: failed to send to {uid}: {e!r}")
-                    continue
-                await asyncio.sleep(0.05)  # ~20 پیام در ثانیه، زیر سقف تلگرام
-
-            job.sent_count = sent
-            job.status = "done"
-            logger.info(f"Broadcast job {job_id}: done, sent={sent}")
-    except BaseException as e:
-        logger.exception(f"Broadcast job {job_id}: CRASHED")
-        await _mark_failed(job_id, f"{type(e).__name__}: {e}")
-    finally:
+    sent = 0
+    failed = 0
+    for uid in user_ids:
         try:
-            await bot.session.close()
-        except Exception:
-            pass
+            await bot.send_message(uid, job.text)
+            sent += 1
+        except TelegramRetryAfter as e:
+            await asyncio.sleep(e.retry_after)
+        except TelegramForbiddenError:
+            failed += 1
+            continue
+        except Exception as e:
+            failed += 1
+            logger.warning(f"Broadcast job {job.id}: failed to send to {uid}: {e!r}")
+            continue
+        await asyncio.sleep(0.05)
 
-
-@celery_app.task
-def send_broadcast(job_id: int):
-    asyncio.run(_send_broadcast(job_id))
+    job.sent_count = sent
+    job.status = "done"
+    await session.flush()
+    logger.info(f"Broadcast job {job.id}: done, sent={sent}, failed={failed}")
+    return {"sent": sent, "failed": failed, "total": len(user_ids)}

@@ -4,7 +4,7 @@ import string
 from datetime import datetime, timedelta
 
 from aiogram import Router, F, Bot
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -16,9 +16,9 @@ from app.config import settings
 from app.models import (
     User, Order, Wallet, Ticket, TicketStatus, GiftCode, BroadcastJob, ActionType,
     PanelTier, PanelPrice, StarPackage, PurchaseRequest, PurchaseStatus,
-    ForceSubChannel, CustomButton, AdminUser, AdminRole,
+    ForceSubChannel, ForceSubJoin, CustomButton, AdminUser, AdminRole, Mission, AdminLog,
 )
-from app.bot.keyboards import admin_panel_keyboard
+from app.bot.keyboards import admin_panel_keyboard, cancel_keyboard
 from app.services.settings_service import set_setting, get_setting
 from app.services.wallet_service import add_diamonds, spend_diamonds
 from app.services.admin_service import can_manage_settings, can_handle_support, add_admin, remove_admin
@@ -56,18 +56,37 @@ async def admin_stats(callback: CallbackQuery, session: AsyncSession):
         await callback.answer("دسترسی نداری.", show_alert=True)
         return
     users_count = (await session.execute(select(func.count(User.id)))).scalar_one()
+    verified_users_count = (await session.execute(
+        select(func.count(func.distinct(ForceSubJoin.user_id)))
+    )).scalar_one()
     orders_count = (await session.execute(select(func.count(Order.id)))).scalar_one()
     stars_in_circulation = (await session.execute(select(func.coalesce(func.sum(Wallet.diamonds), 0)))).scalar_one()
     open_tickets = (await session.execute(select(func.count(Ticket.id)).where(Ticket.status == TicketStatus.OPEN.value))).scalar_one()
     pending_purchases = (await session.execute(select(func.count(PurchaseRequest.id)).where(PurchaseRequest.status == PurchaseStatus.PENDING.value))).scalar_one()
 
+    now = datetime.utcnow()
+    active_24h = (await session.execute(
+        select(func.count(User.id)).where(User.last_active_at >= now - timedelta(hours=24))
+    )).scalar_one()
+    active_7d = (await session.execute(
+        select(func.count(User.id)).where(User.last_active_at >= now - timedelta(days=7))
+    )).scalar_one()
+    active_30d = (await session.execute(
+        select(func.count(User.id)).where(User.last_active_at >= now - timedelta(days=30))
+    )).scalar_one()
+
     await callback.message.edit_text(
         f"📊 <b>آمار کلی پلتفرم</b>\n\n"
-        f"👤 کاربران: {users_count}\n"
+        f"👤 کل استارت‌زده‌ها: {users_count}\n"
+        f"✅ کاربران واقعی (رد شده از گیت عضویت اجباری): {verified_users_count}\n"
         f"🧾 سفارش‌ها: {orders_count}\n"
         f"⭐ استارز در گردش: {stars_in_circulation}\n"
         f"🎫 تیکت‌های باز: {open_tickets}\n"
-        f"🛍 خریدهای در انتظار: {pending_purchases}",
+        f"🛍 خریدهای در انتظار: {pending_purchases}\n\n"
+        f"🟢 <b>کاربران فعال واقعی</b> (کسانی که واقعاً از ربات استفاده کردن، نه فقط استارت):\n"
+        f"   ۲۴ ساعت اخیر: {active_24h}\n"
+        f"   ۷ روز اخیر: {active_7d}\n"
+        f"   ۳۰ روز اخیر: {active_30d}",
         reply_markup=admin_panel_keyboard(),
     )
     await callback.answer()
@@ -120,6 +139,56 @@ async def admin_giftcode_uses(message: Message, state: FSMContext, session: Asyn
     await message.answer(f"✅ کد ساخته شد:\n\n<code>{code}</code>\n\nمقدار: {data['amount']} ⭐ | تعداد استفاده: {gift.max_uses}")
 
 
+class DirectMessageStates(StatesGroup):
+    waiting_user_id = State()
+    waiting_text = State()
+
+
+@router.callback_query(F.data == "adm:dm")
+async def admin_dm_start(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+    if not await can_manage_settings(session, callback.from_user.id):
+        await callback.answer("دسترسی نداری.", show_alert=True)
+        return
+    await state.set_state(DirectMessageStates.waiting_user_id)
+    await callback.message.edit_text(
+        "آیدی عددی کاربری که می‌خوای پیام بفرستی رو بفرست:",
+        reply_markup=cancel_keyboard(),
+    )
+    await callback.answer()
+
+
+@router.message(DirectMessageStates.waiting_user_id)
+async def admin_dm_get_id(message: Message, state: FSMContext, session: AsyncSession):
+    try:
+        target_id = int((message.text or "").strip())
+    except ValueError:
+        await message.answer("آیدی عددی نامعتبره. دوباره بفرست:")
+        return
+    target = await session.get(User, target_id)
+    if not target:
+        await message.answer("کاربری با این آیدی توی دیتابیس پیدا نشد. دوباره بفرست:")
+        return
+    await state.update_data(target_id=target_id)
+    await state.set_state(DirectMessageStates.waiting_text)
+    await message.answer(
+        f"متن پیامی که می‌خوای برای کاربر {target_id} ({target.full_name or 'بدون نام'}) ارسال شه رو بفرست:"
+    )
+
+
+@router.message(DirectMessageStates.waiting_text)
+async def admin_dm_send(message: Message, state: FSMContext, bot: Bot):
+    data = await state.get_data()
+    target_id = data["target_id"]
+    await state.clear()
+    try:
+        await bot.copy_message(chat_id=target_id, from_chat_id=message.chat.id, message_id=message.message_id)
+        await message.answer(f"✅ پیام برای کاربر {target_id} ارسال شد.")
+    except TelegramForbiddenError:
+        await message.answer(f"❌ ارسال نشد؛ کاربر {target_id} ربات رو بلاک کرده یا استارت نزده.")
+    except TelegramBadRequest as e:
+        await message.answer(f"❌ ارسال نشد: {e}")
+
+
 class BroadcastStates(StatesGroup):
     waiting_text = State()
 
@@ -135,17 +204,23 @@ async def admin_broadcast_start(callback: CallbackQuery, state: FSMContext, sess
 
 
 @router.message(BroadcastStates.waiting_text)
-async def admin_broadcast_text(message: Message, state: FSMContext, session: AsyncSession):
+async def admin_broadcast_text(message: Message, state: FSMContext, session: AsyncSession, bot: Bot):
     await state.clear()
     job = BroadcastJob(created_by=message.from_user.id, target_segment="all", text=message.text or "")
     session.add(job)
     await session.flush()
-    job_id = job.id
 
-    from app.tasks.broadcast_tasks import _send_broadcast
-    from app.bot.background import fire_and_forget
-    fire_and_forget(_send_broadcast(job_id))
-    await message.answer(f"✅ بردکاست #{job_id} شروع به ارسال شد (مستقیم از همین ربات، بدون نیاز به سرویس جدا).")
+    progress_msg = await message.answer("⏳ در حال ارسال... (این پیام وقتی تموم شد آپدیت می‌شه)")
+
+    from app.tasks.broadcast_tasks import send_broadcast_now
+    result = await send_broadcast_now(session, bot, job)
+
+    await progress_msg.edit_text(
+        f"✅ بردکاست #{job.id} تموم شد.\n\n"
+        f"📨 ارسال موفق: {result['sent']}\n"
+        f"❌ ناموفق (مسدود/حذف‌شده و...): {result['failed']}\n"
+        f"👥 از کل: {result['total']} کاربر"
+    )
 
 
 # --------------------------------------------------------------- تنظیمات
@@ -190,6 +265,50 @@ async def cmd_setconfig(message: Message, command: CommandObject, session: Async
     key, value = parts
     await set_setting(session, key, value)
     await message.answer(f"✅ {key} = {value} ذخیره شد.")
+
+
+# --------------------------------------------------------------- ماموریت‌ها
+
+@router.message(Command("listmissions"))
+async def cmd_listmissions(message: Message, session: AsyncSession):
+    if not await _require_full(message, session):
+        return
+    result = await session.execute(select(Mission))
+    missions = result.scalars().all()
+    lines = ["🎯 <b>ماموریت‌های فعلی</b>\n"]
+    for m in missions:
+        lines.append(
+            f"<code>{m.code}</code> | {m.title} | هدف: {m.target_count} | پاداش: {m.reward_diamonds}⭐ "
+            f"| {'فعال' if m.is_active else 'غیرفعال'}"
+        )
+    lines.append(
+        "\nبرای ویرایش:\n<code>/editmission کد هدف پاداش</code>\n"
+        "مثلا: <code>/editmission join_channels 10 50</code>"
+    )
+    await message.answer("\n".join(lines))
+
+
+@router.message(Command("editmission"))
+async def cmd_editmission(message: Message, command: CommandObject, session: AsyncSession):
+    if not await _require_full(message, session):
+        return
+    parts = (command.args or "").split()
+    if len(parts) != 3:
+        await message.answer("فرمت: /editmission کد هدف پاداش\nکدها رو با /listmissions ببین.")
+        return
+    code, target, reward = parts
+    result = await session.execute(select(Mission).where(Mission.code == code))
+    mission = result.scalar_one_or_none()
+    if mission is None:
+        await message.answer("این کد ماموریت پیدا نشد. با /listmissions کدهای درست رو ببین.")
+        return
+    try:
+        mission.target_count = int(target)
+        mission.reward_diamonds = int(reward)
+    except ValueError:
+        await message.answer("هدف و پاداش باید عدد باشن.")
+        return
+    await message.answer(f"✅ ماموریت «{mission.title}» آپدیت شد: هدف {mission.target_count} | پاداش {mission.reward_diamonds}⭐")
 
 
 EDITABLE_TEXT_KEYS = ["welcome_text", "rules_text", "shop_intro_text", "shop_panel_intro_text", "shop_stars_intro_text"]
@@ -265,6 +384,90 @@ async def cmd_unban(message: Message, command: CommandObject, session: AsyncSess
     target.is_banned = False
     target.ban_reason = None
     await message.answer(f"✅ کاربر {target.id} آنبن شد.")
+
+
+# ----------------------------------------------------------- اخطار (۳ اخطار = بن خودکار)
+
+@router.message(Command("warn"))
+async def cmd_warn(message: Message, command: CommandObject, session: AsyncSession, bot: Bot):
+    if not await _require_full(message, session):
+        return
+    if not command.args:
+        await message.answer("فرمت: /warn آیدی_عددی [دلیل]")
+        return
+    parts = command.args.split(maxsplit=1)
+    try:
+        target = await session.get(User, int(parts[0]))
+    except ValueError:
+        await message.answer("آیدی عددی نامعتبره.")
+        return
+    if not target:
+        await message.answer("کاربر پیدا نشد.")
+        return
+    reason = parts[1] if len(parts) > 1 else "بدون ذکر دلیل"
+
+    target.warnings_count += 1
+    session.add(AdminLog(
+        actor_id=message.from_user.id, action="warn",
+        details=f"user:{target.id} count:{target.warnings_count} reason:{reason}",
+    ))
+
+    got_banned = False
+    if target.warnings_count >= 3 and not target.is_banned:
+        target.is_banned = True
+        target.ban_reason = f"۳ اخطار دریافت کرد. آخرین دلیل: {reason}"
+        got_banned = True
+        session.add(AdminLog(
+            actor_id=message.from_user.id, action="auto_ban_after_3_warnings",
+            details=f"user:{target.id}",
+        ))
+
+    try:
+        if got_banned:
+            await bot.send_message(
+                target.id,
+                f"🚫 حساب تو به‌دلیل دریافت ۳ اخطار مسدود شد.\nآخرین دلیل: {reason}",
+            )
+        else:
+            await bot.send_message(
+                target.id,
+                f"⚠️ اخطار {target.warnings_count} از ۳\nدلیل: {reason}\n\n"
+                f"در صورت تکرار طبق قوانین، حساب تو مسدود می‌شه.",
+            )
+    except TelegramForbiddenError:
+        pass
+
+    if got_banned:
+        await message.answer(f"⚠️ اخطار سوم ثبت شد و کاربر {target.id} خودکار مسدود شد.")
+    else:
+        await message.answer(f"⚠️ اخطار {target.warnings_count}/۳ برای کاربر {target.id} ثبت شد.")
+
+
+@router.message(Command("unwarn"))
+async def cmd_unwarn(message: Message, command: CommandObject, session: AsyncSession):
+    if not await _require_full(message, session):
+        return
+    if not command.args:
+        await message.answer("فرمت: /unwarn آیدی_عددی")
+        return
+    try:
+        target = await session.get(User, int(command.args.strip()))
+    except ValueError:
+        await message.answer("آیدی عددی نامعتبره.")
+        return
+    if not target:
+        await message.answer("کاربر پیدا نشد.")
+        return
+    if target.warnings_count <= 0:
+        await message.answer("این کاربر اخطاری نداره.")
+        return
+
+    target.warnings_count -= 1
+    session.add(AdminLog(
+        actor_id=message.from_user.id, action="unwarn",
+        details=f"user:{target.id} count:{target.warnings_count}",
+    ))
+    await message.answer(f"✅ یک اخطار کم شد. الان کاربر {target.id}: {target.warnings_count}/۳ اخطار داره.")
 
 
 @router.message(Command("adjustwallet"))
@@ -652,87 +855,3 @@ async def admin_tickets_list(callback: CallbackQuery, session: AsyncSession):
         lines.append("تیکت بازی نیست.")
     await callback.message.edit_text("\n".join(lines), reply_markup=admin_panel_keyboard())
     await callback.answer()
-
-
-@router.message(Command("liststarpkg"))
-async def cmd_liststarpkg(message: Message, command: CommandObject, session: AsyncSession):
-    if not await _require_full(message, session):
-        return
-    result = await session.execute(select(StarPackage))
-    pkgs = result.scalars().all()
-    if not pkgs:
-        await message.answer("❌ بسته‌ای وجود ندارد.")
-        return
-    lines = ["📦 <b>لیست بسته‌های ستاره:</b>\n"]
-    for p in pkgs:
-        status = "✅" if p.is_active else "❌"
-        lines.append(f"{status} ID:{p.id} | {p.amount_stars} ⭐ | {p.price_label}")
-    lines.append("\n✏️ ویرایش: /editstarpkg آیدی تعداد_ستاره برچسب_قیمت")
-    await message.answer("\n".join(lines))
-
-
-@router.message(Command("editstarpkg"))
-async def cmd_editstarpkg(message: Message, command: CommandObject, session: AsyncSession):
-    if not await _require_full(message, session):
-        return
-    parts = (command.args or "").split(maxsplit=2)
-    if len(parts) != 3:
-        await message.answer("فرمت: /editstarpkg آیدی تعداد_ستاره برچسب_قیمت")
-        return
-    try:
-        pkg_id = int(parts[0])
-        amount = int(parts[1])
-        price_label = parts[2]
-    except ValueError:
-        await message.answer("❌ آیدی و تعداد باید عدد باشند.")
-        return
-    pkg = await session.get(StarPackage, pkg_id)
-    if not pkg:
-        await message.answer("❌ بسته پیدا نشد.")
-        return
-    pkg.amount_stars = amount
-    pkg.price_label = price_label
-    await session.flush()
-    await message.answer(f"✅ بسته #{pkg_id} ویرایش شد: {amount} ⭐ | {price_label}")
-
-
-@router.message(Command("liststarpkg"))
-async def cmd_liststarpkg(message: Message, command: CommandObject, session: AsyncSession):
-    if not await _require_full(message, session):
-        return
-    result = await session.execute(select(StarPackage))
-    pkgs = result.scalars().all()
-    if not pkgs:
-        await message.answer("❌ بسته‌ای وجود ندارد.")
-        return
-    lines = ["📦 <b>لیست بسته‌های ستاره:</b>\n"]
-    for p in pkgs:
-        status = "✅" if p.is_active else "❌"
-        lines.append(f"{status} ID:{p.id} | {p.amount_stars} ⭐ | {p.price_label}")
-    lines.append("\n✏️ ویرایش: /editstarpkg آیدی تعداد_ستاره برچسب_قیمت")
-    await message.answer("\n".join(lines))
-
-
-@router.message(Command("editstarpkg"))
-async def cmd_editstarpkg(message: Message, command: CommandObject, session: AsyncSession):
-    if not await _require_full(message, session):
-        return
-    parts = (command.args or "").split(maxsplit=2)
-    if len(parts) != 3:
-        await message.answer("فرمت: /editstarpkg آیدی تعداد_ستاره برچسب_قیمت")
-        return
-    try:
-        pkg_id = int(parts[0])
-        amount = int(parts[1])
-        price_label = parts[2]
-    except ValueError:
-        await message.answer("❌ آیدی و تعداد باید عدد باشند.")
-        return
-    pkg = await session.get(StarPackage, pkg_id)
-    if not pkg:
-        await message.answer("❌ بسته پیدا نشد.")
-        return
-    pkg.amount_stars = amount
-    pkg.price_label = price_label
-    await session.flush()
-    await message.answer(f"✅ بسته #{pkg_id} ویرایش شد: {amount} ⭐ | {price_label}")
