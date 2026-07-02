@@ -56,6 +56,34 @@ class UserMiddleware(BaseMiddleware):
         return await handler(event, data)
 
 
+class BanMiddleware(BaseMiddleware):
+    """جلوگیری کامل از استفاده‌ی کاربران بن‌شده از هر بخش ربات (باید قبل از ForceSubMiddleware ثبت شه)"""
+
+    async def __call__(
+        self,
+        handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]],
+        event: TelegramObject,
+        data: Dict[str, Any],
+    ) -> Any:
+        if not isinstance(event, (Message, CallbackQuery)):
+            return await handler(event, data)
+
+        user: User | None = data.get("user")
+        if user is None or not user.is_banned:
+            return await handler(event, data)
+
+        text = f"🚫 حساب تو مسدود شده و نمی‌تونی از ربات استفاده کنی.\nدلیل: {user.ban_reason or 'ذکر نشده'}"
+        if isinstance(event, CallbackQuery):
+            try:
+                await event.answer(text, show_alert=True)
+            except Exception:
+                pass
+        else:
+            await event.answer(text)
+
+        return  # متوقف کردن پردازش - هندلر اصلی صدا زده نمی‌شه
+
+
 class ForceSubMiddleware(BaseMiddleware):
     """قبل از پردازش هر پیام/دکمه‌ای، چک می‌کنه کاربر عضو کانال‌های اجباری شده یا نه"""
 

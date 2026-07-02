@@ -10,7 +10,7 @@ from aiogram.fsm.storage.redis import RedisStorage
 from app.config import settings
 from app.database import init_models, session_scope
 from app.seed import seed_defaults
-from app.bot.middlewares import DatabaseMiddleware, UserMiddleware, ForceSubMiddleware
+from app.bot.middlewares import DatabaseMiddleware, UserMiddleware, BanMiddleware, ForceSubMiddleware
 from app.bot.handlers import (
     start, earn, orders, profile, referral, tickets, admin, chat_member_events,
     shop, rules, custom_content,
@@ -33,6 +33,8 @@ async def main():
     dp.update.outer_middleware(UserMiddleware())
     # این دوتا باید روی observer های اختصاصی ثبت شن، نه dp.update، تا event واقعا
     # از نوع Message/CallbackQuery باشه (نه خود شیء Update)
+    dp.message.outer_middleware(BanMiddleware())
+    dp.callback_query.outer_middleware(BanMiddleware())
     dp.message.outer_middleware(ForceSubMiddleware())
     dp.callback_query.outer_middleware(ForceSubMiddleware())
 
