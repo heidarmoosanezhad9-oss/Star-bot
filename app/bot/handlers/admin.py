@@ -735,6 +735,17 @@ async def cmd_addforcesub(message: Message, command: CommandObject, session: Asy
         await message.answer(f"خطا: {e}")
         return
 
+    existing = (await session.execute(
+        select(ForceSubChannel).where(ForceSubChannel.chat_id == chat.id)
+    )).scalar_one_or_none()
+
+    if existing:
+        existing.is_active = True
+        existing.title = chat.title
+        existing.username = chat.username
+        await message.answer(f"✅ {chat.title} دوباره فعال شد (قبلاً اضافه شده بود و غیرفعال بود).")
+        return
+
     fs = ForceSubChannel(chat_id=chat.id, title=chat.title, username=chat.username)
     session.add(fs)
     await session.flush()
