@@ -69,7 +69,7 @@ class BanMiddleware(BaseMiddleware):
             return await handler(event, data)
 
         user: User | None = data.get("user")
-        if user is None or not user.is_banned:
+        if user is None or user.is_admin or not user.is_banned:
             return await handler(event, data)
 
         text = f"🚫 حساب تو مسدود شده و نمی‌تونی از ربات استفاده کنی.\nدلیل: {user.ban_reason or 'ذکر نشده'}"
